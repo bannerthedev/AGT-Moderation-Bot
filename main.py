@@ -1,13 +1,17 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Tuple, Optional
+import os
+import dotenv
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 from zoneinfo import ZoneInfo
+from dotenv import load_dotenv
 
-TOKEN = "MTUxNTg3MzEzODE1NDQxMDA1Ng.Gz-rYS.JpDHeEoc7G5vFdD96DLnkFnGIRrBmB6HlFpTGc"
+load_dotenv()
+
 
 # ------------ IDs / CONSTANTS ------------
 MAIN_GUILD_ID = 1495226742124843048   # main server ID
@@ -1192,4 +1196,4 @@ async def on_ready():
     print("Slash commands synced for main and appeal guilds.")
 
 
-bot.run(TOKEN)
+bot.run(os.getenv("TOKEN"))
