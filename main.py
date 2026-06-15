@@ -7,12 +7,11 @@ import dotenv
 import re
 
 import discord
-from discord import app_commands
 from discord.ext import commands
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv
 
 
 # ------------ IDs / CONSTANTS ------------
@@ -31,7 +30,7 @@ SERVER_NAME = "Ascending Gorilla Tag"
 APPEAL_LINK = "https://discord.gg/KkKhShmDwz"  # for ban DM
 
 # --- role ping mapping for saysmth ---
-HEAD_CASTER_ROLE_ID = 1504981237503098980  # put your real IDs here
+HEAD_CASTER_ROLE_ID = 1504981237503098980
 HEAD_REF_ROLE_ID = 1504981216577978633
 REF_ROLE_ID = 1504981193182150746
 CASTER_ROLE_ID = 1503037050750767104
@@ -156,313 +155,6 @@ def can_timeout(member: discord.Member) -> bool:
             return True
 
     return False
-
-# ---------------- Kick Flow selects (unused, but kept) ----------------
-
-class MemberSelect(discord.ui.UserSelect):
-    def __init__(self, placeholder: str = "Select a member to kick..."):
-        super().__init__(
-            placeholder=placeholder,
-            min_values=1,
-            max_values=1,
-            custom_id="kick_member_select"
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        view: "KickReportView" = self.view  # type: ignore
-        view.target_member = self.values[0]
-        await view.check_and_finish(interaction)
-
-
-class ReasonSelect(discord.ui.Select):
-    def __init__(self, placeholder: str = "Select the reason for the kick..."):
-        options = [
-            discord.SelectOption(label="Toxicity", value="toxicity"),
-            discord.SelectOption(label="Harassment", value="harassment"),
-            discord.SelectOption(label="Spam", value="spam"),
-            discord.SelectOption(label="Other", value="other"),
-        ]
-        super().__init__(
-            placeholder=placeholder,
-            min_values=1,
-            max_values=1,
-            options=options,
-            custom_id="kick_reason_select"
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        view: "KickReportView" = self.view  # type: ignore
-        view.reason = self.values[0]
-        await view.check_and_finish(interaction)
-
-
-# ============================================================
-# /submit-report modals
-# ============================================================
-
-class SRDurationReasonModal(discord.ui.Modal, title="Submit Report"):
-    def __init__(self, action: str, target: discord.Member | discord.User):
-        super().__init__(timeout=300)
-        self.action = action
-        self.target = target
-
-        self.duration_input = discord.ui.TextInput(
-            label="Duration (e.g. 2h, 5 days)",
-            placeholder="2h",
-            required=True,
-            max_length=50
-        )
-        self.reason_input = discord.ui.TextInput(
-            label="Reason",
-            style=discord.TextStyle.paragraph,
-            placeholder="Because...",
-            required=True,
-            max_length=400
-        )
-        self.add_item(self.duration_input)
-        self.add_item(self.reason_input)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        if interaction.guild is None or interaction.guild.id != MAIN_GUILD_ID:
-            await interaction.response.send_message(
-                "This command can only be used in the main server.",
-                ephemeral=True
-            )
-            return
-
-        if not isinstance(interaction.user, discord.Member):
-            await interaction.response.send_message(
-                "You must be in the server to use this.",
-                ephemeral=True
-            )
-            return
-
-        if self.action == "ban" and not is_mod_or_admin(interaction.user):
-            await interaction.response.send_message(
-                "You must be a moderator or admin to ban members.",
-                ephemeral=True
-            )
-            return
-
-        if self.action == "mute" and not can_timeout(interaction.user):
-            await interaction.response.send_message(
-                "You must be staff (Trial Mod or higher) to mute members.",
-                ephemeral=True
-            )
-            return
-
-        duration_text = self.duration_input.value
-        reason = self.reason_input.value
-        delta = parse_duration(duration_text)
-        if delta is None:
-            await interaction.response.send_message(
-                "Could not parse that duration. Use things like `2h`, `5 days`, `30m`.",
-                ephemeral=True
-            )
-            return
-
-        now = now_utc()
-        end_time = now + delta
-
-        if self.action == "ban":
-            embed = discord.Embed(
-                title="You have been banned.",
-                description=f"Appeal: join [this server]({APPEAL_LINK}) and run `/appeal`.",
-                color=discord.Color.red()
-            )
-            embed.add_field(name="Rule", value="Testing server", inline=False)
-            embed.add_field(name="Duration", value=format_remaining(delta), inline=False)
-            embed.set_footer(text=format_time(now))
-
-            dm_msg = None
-            try:
-                dm_msg = await self.target.send(embed=embed)
-            except Exception:
-                dm_msg = None
-
-            guild = interaction.guild
-            try:
-                await guild.ban(self.target, reason=reason, delete_message_days=0)
-            except Exception as e:
-                await interaction.response.send_message(
-                    f"Failed to ban user: {e}",
-                    ephemeral=True
-                )
-                return
-
-            await interaction.response.send_message(
-                f"{self.target.mention} has been **banned** for `{duration_text}`.\nReason: {reason}",
-                ephemeral=True
-            )
-
-            if dm_msg:
-                bot.loop.create_task(setup_countdown(dm_msg, end_time))
-
-        elif self.action == "mute":
-            embed = discord.Embed(
-                title=f"You Have Been Muted In {SERVER_NAME}",
-                color=discord.Color.dark_gray()
-            )
-            embed.add_field(name="Reason:", value=reason, inline=False)
-            embed.add_field(name="Duration:", value=duration_text, inline=False)
-            embed.set_footer(text=format_time(now))
-
-            try:
-                await self.target.send(embed=embed)
-            except Exception:
-                pass
-
-            if isinstance(self.target, discord.Member):
-                try:
-                    await self.target.edit(communication_disabled_until=end_time)
-                except Exception:
-                    pass
-
-            await interaction.response.send_message(
-                f"{self.target.mention} has been **muted (timed out)** for `{duration_text}`.\nReason: {reason}",
-                ephemeral=True
-            )
-
-
-class SRReasonOnlyModal(discord.ui.Modal, title="Submit Report"):
-    def __init__(self, action: str, target: discord.Member | discord.User):
-        super().__init__(timeout=300)
-        self.action = action
-        self.target = target
-
-        self.reason_input = discord.ui.TextInput(
-            label="Reason",
-            style=discord.TextStyle.paragraph,
-            placeholder="Because...",
-            required=True,
-            max_length=400
-        )
-        self.add_item(self.reason_input)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        if interaction.guild is None or interaction.guild.id != MAIN_GUILD_ID:
-            await interaction.response.send_message(
-                "This command can only be used in the main server.",
-                ephemeral=True
-            )
-            return
-
-        if not isinstance(interaction.user, discord.Member) or not is_mod_or_admin(interaction.user):
-            await interaction.response.send_message(
-                "You must be a moderator or admin to use this.",
-                ephemeral=True
-            )
-            return
-
-        reason = self.reason_input.value
-        now = now_utc()
-
-        if self.action == "warning":
-            embed = discord.Embed(
-                title=f"You have been warned in {SERVER_NAME}",
-                color=discord.Color.yellow()
-            )
-            embed.add_field(name="Reason", value=reason, inline=False)
-            embed.set_footer(text=format_time(now))
-
-            try:
-                await self.target.send(embed=embed)
-            except Exception:
-                pass
-
-            await interaction.response.send_message(
-                f"{self.target.mention} has been **warned**.\nReason: {reason}",
-                ephemeral=True
-            )
-
-
-# ============================================================
-# /submit-report UI (selects & views)
-# ============================================================
-
-class SRMemberSelect(discord.ui.UserSelect):
-    def __init__(self, action: str):
-        super().__init__(
-            placeholder="Select a member...",
-            min_values=1,
-            max_values=1,
-            custom_id="sr_member_select"
-        )
-        self.action = action
-
-    async def callback(self, interaction: discord.Interaction):
-        member = self.values[0]
-        action = self.action
-        if action in ("ban", "mute"):
-            modal = SRDurationReasonModal(action=action, target=member)
-        else:
-            modal = SRReasonOnlyModal(action=action, target=member)
-        await interaction.response.send_modal(modal)
-
-
-class SRMemberSelectView(discord.ui.View):
-    def __init__(self, action: str, timeout: Optional[float] = 120):
-        super().__init__(timeout=timeout)
-        self.add_item(SRMemberSelect(action))
-
-
-class SRActionSelect(discord.ui.Select):
-    def __init__(self):
-        options = [
-            discord.SelectOption(label="Ban", value="ban"),
-            discord.SelectOption(label="Warning", value="warning"),
-            discord.SelectOption(label="Mute/Timeout", value="mute"),
-        ]
-        super().__init__(
-            placeholder="Choose an action...",
-            min_values=1,
-            max_values=1,
-            options=options,
-            custom_id="sr_action_select"
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        action = self.values[0]
-        view = SRMemberSelectView(action)
-        await interaction.response.edit_message(
-            content=f"Action selected: **{action.capitalize()}**. Now choose a member:",
-            view=view
-        )
-
-
-class SRActionSelectView(discord.ui.View):
-    def __init__(self, timeout: Optional[float] = 120):
-        super().__init__(timeout=timeout)
-        self.add_item(SRActionSelect())
-
-
-# ============================================================
-#                       /submit-report
-# ============================================================
-
-@bot.tree.command(name="submit-report", description="Submit a staff report (ban/warn/mute).")
-@app_commands.guilds(discord.Object(id=MAIN_GUILD_ID))
-async def submit_report(interaction: discord.Interaction):
-    if interaction.guild is None or interaction.guild.id != MAIN_GUILD_ID:
-        await interaction.response.send_message(
-            "This command can only be used in the main server.",
-            ephemeral=True
-        )
-        return
-
-    if not isinstance(interaction.user, discord.Member) or not is_mod_or_admin(interaction.user):
-        await interaction.response.send_message(
-            "You must be a moderator or admin to use this command.",
-            ephemeral=True
-        )
-        return
-
-    view = SRActionSelectView()
-    await interaction.response.send_message(
-        "Select the type of report you want to submit:",
-        view=view,
-        ephemeral=True
-    )
 
 
 # ============================================================
@@ -626,13 +318,11 @@ class StaffDecisionView(discord.ui.View):
         user_id = self.target_user_id
         client = interaction.client
 
-        # Try to fetch the user object (not just from cache)
         try:
             user = await client.fetch_user(user_id)
         except Exception:
             user = client.get_user(user_id)
 
-        # DM user with new message text
         if user is not None:
             try:
                 msg = (
@@ -643,18 +333,15 @@ class StaffDecisionView(discord.ui.View):
             except Exception:
                 pass
 
-        # Unban in main guild – use user ID directly
         main_guild = client.get_guild(MAIN_GUILD_ID)
         if main_guild:
             try:
                 await main_guild.unban(discord.Object(id=user_id), reason="Appeal accepted")
             except discord.NotFound:
-                # Not currently banned – ignore
                 pass
             except Exception:
                 pass
 
-        # Kick from appeal server
         appeal_guild = client.get_guild(APPEAL_GUILD_ID)
         if appeal_guild:
             try:
@@ -664,12 +351,10 @@ class StaffDecisionView(discord.ui.View):
             except Exception:
                 pass
 
-        # Remove from queues
         if user_id in pending_appeal_queue:
             pending_appeal_queue.remove(user_id)
         active_appeals.pop(user_id, None)
 
-        # Disable buttons
         for child in self.children:
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
@@ -701,7 +386,7 @@ class StaffDecisionView(discord.ui.View):
 
 
 @bot.tree.command(name="appeal", description="Submit a ban appeal")
-@app_commands.guilds(discord.Object(id=APPEAL_GUILD_ID))
+@discord.app_commands.guilds(discord.Object(id=APPEAL_GUILD_ID))
 async def appeal(interaction: discord.Interaction):
     if interaction.guild is None or interaction.guild.id != APPEAL_GUILD_ID:
         await interaction.response.send_message("This command can only be used in the appeal server.", ephemeral=True)
@@ -725,49 +410,72 @@ async def appeal(interaction: discord.Interaction):
     view = AgreementView(user_id=interaction.user.id)
     await interaction.response.send_message(agreement_text, view=view, ephemeral=True)
 
+
 # ---------- Relay DM messages to appeal thread ----------
 
 @bot.event
 async def on_message(message: discord.Message):
-    # Let commands still work
     await bot.process_commands(message)
 
     if message.author.bot:
         return
 
-    # Only handle DMs from users with active appeals
-    if message.guild is not None:
+    # DMs for appeals
+    if message.guild is None:
+        user_id = message.author.id
+        if user_id not in active_appeals:
+            return
+
+        thread_id = active_appeals[user_id]
+        thread = bot.get_channel(thread_id)
+        if not isinstance(thread, discord.Thread):
+            return
+
+        content = message.content or "[no text]"
+        attachments = message.attachments
+
+        text = f"**Message from {message.author} ({message.author.id}) in DM:**\n{content}"
+
+        files = []
+        for att in attachments:
+            try:
+                files.append(await att.to_file())
+            except Exception:
+                pass
+
+        await thread.send(content=text, files=files)
+
         return
 
-    user_id = message.author.id
-    if user_id not in active_appeals:
-        return
-
-    thread_id = active_appeals[user_id]
-    thread = bot.get_channel(thread_id)
-    if not isinstance(thread, discord.Thread):
-        return
-
-    content = message.content or "[no text]"
-    attachments = message.attachments
-
-    text = f"**Message from {message.author} ({message.author.id}) in DM:**\n{content}"
-
-    files = []
-    for att in attachments:
-        try:
-            files.append(await att.to_file())
-        except Exception:
-            pass
-
-    await thread.send(content=text, files=files)
 
 # ============================================================
 #                   PREFIX (!) MODERATION COMMANDS
 # ============================================================
 
+def _parse_user_arg(raw: str) -> int | None:
+    raw = raw.strip()
+    if raw.startswith("<@") and raw.endswith(">"):
+        raw = raw.strip("<@!>")
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+def _parse_duration_arg(raw: str) -> tuple[Optional[timedelta], bool]:
+    text = raw.strip().lower()
+    if text.startswith("(") and text.endswith(")"):
+        text = text[1:-1].strip()
+
+    if text in ("perm", "permanent"):
+        return None, True
+
+    delta = parse_duration(text)
+    return delta, False
+
+
 @bot.command(name="ban")
-async def cmd_ban(ctx: commands.Context, user: discord.User, duration: str, *, reason: str):
+async def cmd_ban(ctx: commands.Context, user_raw: str, duration_raw: str, *, reason: str = "No reason provided"):
+    # !ban <user_id_or_mention> <time_or_(perm)> [reason...]
     if ctx.guild is None or ctx.guild.id != MAIN_GUILD_ID:
         await ctx.send("This command can only be used in the main server.", delete_after=10)
         return
@@ -775,13 +483,25 @@ async def cmd_ban(ctx: commands.Context, user: discord.User, duration: str, *, r
         await ctx.send("You must be a moderator or admin to ban members.", delete_after=10)
         return
 
-    delta = parse_duration(duration)
-    if delta is None:
-        await ctx.send("Could not parse that duration. Use things like `2h`, `5 days`, `30m`.", delete_after=10)
+    uid = _parse_user_arg(user_raw)
+    if uid is None:
+        await ctx.send("Please provide a valid user ID or mention.", delete_after=10)
+        return
+
+    delta, is_perm = _parse_duration_arg(duration_raw)
+    if not is_perm and delta is None:
+        await ctx.send("Could not parse that duration. Use `2h`, `5 days`, `30m`, or `(perm)`.", delete_after=10)
         return
 
     now = now_utc()
-    end_time = now + delta
+    end_time = now + delta if delta else None
+
+    try:
+        user = await ctx.bot.fetch_user(uid)
+    except Exception:
+        user = ctx.guild.get_member(uid) or ctx.bot.get_user(uid)
+
+    duration_display = "Permanent ban" if is_perm else format_remaining(delta)
 
     embed = discord.Embed(
         title="You have been banned.",
@@ -789,75 +509,31 @@ async def cmd_ban(ctx: commands.Context, user: discord.User, duration: str, *, r
         color=discord.Color.red()
     )
     embed.add_field(name="Rule", value="Testing server", inline=False)
-    embed.add_field(name="Duration", value=format_remaining(delta), inline=False)
+    embed.add_field(name="Duration", value=duration_display, inline=False)
     embed.set_footer(text=format_time(now))
 
     dm_msg = None
-    try:
-        dm_msg = await user.send(embed=embed)
-    except Exception:
-        dm_msg = None
+    if user is not None:
+        try:
+            dm_msg = await user.send(embed=embed)
+        except Exception:
+            dm_msg = None
 
     try:
-        await ctx.guild.ban(user, reason=reason, delete_message_days=0)
+        await ctx.guild.ban(discord.Object(id=uid), reason=reason, delete_message_days=0)
     except Exception as e:
         await ctx.send(f"Failed to ban user: `{e}`", delete_after=10)
         return
 
-    await ctx.send(f"{user.mention} has been **banned** for `{duration}`.\nReason: {reason}")
-    if dm_msg:
+    await ctx.send(f"<@{uid}> has been **banned** for `{duration_raw}`.\nReason: {reason}")
+
+    if dm_msg and not is_perm and end_time is not None:
         bot.loop.create_task(setup_countdown(dm_msg, end_time))
 
 
-@bot.command(name="lockdown")
-async def cmd_lockdown(ctx: commands.Context):
-    if ctx.guild is None:
-        await ctx.send("This command can only be used in a server text channel.", delete_after=10)
-        return
-    if not isinstance(ctx.author, discord.Member) or not ctx.author.guild_permissions.administrator:
-        await ctx.send("You must be an administrator to use this command.", delete_after=10)
-        return
-
-    channel = ctx.channel
-    everyone_role = ctx.guild.default_role
-    overwrite = channel.overwrites_for(everyone_role)
-
-    if overwrite.send_messages is False:
-        await ctx.send("This channel is already locked down.", delete_after=10)
-        return
-
-    overwrite.send_messages = False
-    await channel.set_permissions(everyone_role, overwrite=overwrite)
-    await ctx.send("This channel has been locked down.")
-
-
-@bot.command(name="warning")
-async def cmd_warning(ctx: commands.Context, user: discord.User, *, reason: str):
-    if ctx.guild is None or ctx.guild.id != MAIN_GUILD_ID:
-        await ctx.send("This command can only be used in the main server.", delete_after=10)
-        return
-    if not isinstance(ctx.author, discord.Member) or not is_mod_or_admin(ctx.author):
-        await ctx.send("You must be a moderator or admin to use this.", delete_after=10)
-        return
-
-    now = now_utc()
-    embed = discord.Embed(
-        title=f"You have been warned in {SERVER_NAME}",
-        color=discord.Color.yellow()
-    )
-    embed.add_field(name="Reason", value=reason, inline=False)
-    embed.set_footer(text=format_time(now))
-
-    try:
-        await user.send(embed=embed)
-    except Exception:
-        pass
-
-    await ctx.send(f"{user.mention} has been **warned**.\nReason: {reason}")
-
-
 @bot.command(name="timeout")
-async def cmd_timeout(ctx: commands.Context, member: discord.Member, duration: str, *, reason: str = "Timed out"):
+async def cmd_timeout(ctx: commands.Context, user_raw: str, duration_raw: str, *, reason: str = "Timed out"):
+    # !timeout <user_id_or_mention> <time_or_(perm)> [reason...]
     if ctx.guild is None or ctx.guild.id != MAIN_GUILD_ID:
         await ctx.send("This command can only be used in the main server.", delete_after=10)
         return
@@ -865,9 +541,21 @@ async def cmd_timeout(ctx: commands.Context, member: discord.Member, duration: s
         await ctx.send("You must be staff (Trial Mod or higher) to timeout members.", delete_after=10)
         return
 
-    delta = parse_duration(duration)
+    uid = _parse_user_arg(user_raw)
+    if uid is None:
+        await ctx.send("Please provide a valid user ID or mention.", delete_after=10)
+        return
+
+    delta, is_perm = _parse_duration_arg(duration_raw)
+    if is_perm:
+        delta = timedelta(days=28)
     if delta is None:
-        await ctx.send("Could not parse that duration. Use things like `2h`, `5 days`, `30m`.", delete_after=10)
+        await ctx.send("Could not parse that duration. Use `2h`, `5 days`, `30m`, or `(perm)`.", delete_after=10)
+        return
+
+    member = ctx.guild.get_member(uid)
+    if member is None:
+        await ctx.send("That user is not in this server.", delete_after=10)
         return
 
     now = now_utc()
@@ -878,7 +566,7 @@ async def cmd_timeout(ctx: commands.Context, member: discord.Member, duration: s
         color=discord.Color.dark_gray()
     )
     embed.add_field(name="Reason:", value=reason, inline=False)
-    embed.add_field(name="Duration:", value=duration, inline=False)
+    embed.add_field(name="Duration:", value=duration_raw, inline=False)
     embed.set_footer(text=format_time(now))
 
     try:
@@ -889,18 +577,65 @@ async def cmd_timeout(ctx: commands.Context, member: discord.Member, duration: s
     try:
         await member.edit(communication_disabled_until=end_time)
     except Exception:
-        pass
+        await ctx.send("Failed to apply timeout (check my permissions and role position).", delete_after=10)
+        return
 
-    await ctx.send(f"{member.mention} has been **muted (timed out)** for `{duration}`.\nReason: {reason}")
+    await ctx.send(f"{member.mention} has been **muted (timed out)** for `{duration_raw}`.\nReason: {reason}")
+
+
+@bot.command(name="warning")
+async def cmd_warning(ctx: commands.Context, user_raw: str, *, reason: str = "No reason provided"):
+    if ctx.guild is None or ctx.guild.id != MAIN_GUILD_ID:
+        await ctx.send("This command can only be used in the main server.", delete_after=10)
+        return
+    if not isinstance(ctx.author, discord.Member) or not is_mod_or_admin(ctx.author):
+        await ctx.send("You must be a moderator or admin to use this.", delete_after=10)
+        return
+
+    uid = _parse_user_arg(user_raw)
+    if uid is None:
+        await ctx.send("Please provide a valid user ID or mention.", delete_after=10)
+        return
+
+    try:
+        user = await ctx.bot.fetch_user(uid)
+    except Exception:
+        user = ctx.guild.get_member(uid) or ctx.bot.get_user(uid)
+
+    now = now_utc()
+    embed = discord.Embed(
+        title=f"You have been warned in {SERVER_NAME}",
+        color=discord.Color.yellow()
+    )
+    embed.add_field(name="Reason", value=reason, inline=False)
+    embed.set_footer(text=format_time(now))
+
+    if user is not None:
+        try:
+            await user.send(embed=embed)
+        except Exception:
+            pass
+
+    await ctx.send(f"<@{uid}> has been **warned**.\nReason: {reason}")
 
 
 @bot.command(name="kick")
-async def cmd_kick(ctx: commands.Context, member: discord.Member, *, reason: str):
+async def cmd_kick(ctx: commands.Context, user_raw: str, *, reason: str = "No reason provided"):
     if ctx.guild is None or ctx.guild.id != MAIN_GUILD_ID:
         await ctx.send("This command can only be used in the main server.", delete_after=10)
         return
     if not isinstance(ctx.author, discord.Member) or not is_mod_or_admin(ctx.author):
         await ctx.send("You must be a moderator or admin to use this command.", delete_after=10)
+        return
+
+    uid = _parse_user_arg(user_raw)
+    if uid is None:
+        await ctx.send("Please provide a valid user ID or mention.", delete_after=10)
+        return
+
+    member = ctx.guild.get_member(uid)
+    if member is None:
+        await ctx.send("That user is not in this server.", delete_after=10)
         return
 
     if member.id == ctx.author.id:
@@ -950,207 +685,116 @@ async def cmd_parge(ctx: commands.Context, amount: int):
     deleted = await channel.purge(limit=amount)
     await ctx.send(f"Deleted {len(deleted)} messages.", delete_after=10)
 
-# ============================================================
-#       ORIGINAL SLASH MODERATION COMMANDS (still present)
-# ============================================================
 
-@bot.tree.command(name="kick", description="Kick a member from the server")
-@app_commands.describe(
-    member="Member to kick",
-    reason="Reason for the kick"
-)
-@app_commands.guilds(discord.Object(id=MAIN_GUILD_ID))
-async def kick(
-    interaction: discord.Interaction,
-    member: discord.Member,
-    reason: str
-):
-    # Ensure in main server
-    if interaction.guild is None or interaction.guild.id != MAIN_GUILD_ID:
-        await interaction.response.send_message(
-            "This command can only be used in the main server.",
-            ephemeral=True
-        )
+@bot.command(name="lockdown")
+async def cmd_lockdown(ctx: commands.Context):
+    if ctx.guild is None:
+        await ctx.send("This command can only be used in a server text channel.", delete_after=10)
+        return
+    if not isinstance(ctx.author, discord.Member) or not ctx.author.guild_permissions.administrator:
+        await ctx.send("You must be an administrator to use this command.", delete_after=10)
         return
 
-    # Mods+ only
-    if not isinstance(interaction.user, discord.Member) or not is_mod_or_admin(interaction.user):
-        await interaction.response.send_message(
-            "You must be a moderator or admin to use this command.",
-            ephemeral=True
-        )
-        return
-
-    # Optional safety checks
-    if member.id == interaction.user.id:
-        await interaction.response.send_message(
-            "You cannot kick yourself.",
-            ephemeral=True
-        )
-        return
-    if member.id == interaction.client.user.id:
-        await interaction.response.send_message(
-            "I cannot kick myself.",
-            ephemeral=True
-        )
-        return
-
-    # DM with red embed
-    try:
-        embed = discord.Embed(
-            title=f"You Have Been Kicked From {SERVER_NAME}",
-            color=discord.Color.red()
-        )
-        embed.add_field(name="Reason:", value=reason, inline=False)
-        await member.send(embed=embed)
-    except Exception:
-        pass  # can't DM, ignore
-
-    # Kick from guild
-    try:
-        await member.kick(reason=reason)
-    except Exception as e:
-        await interaction.response.send_message(
-            f"Failed to kick {member.mention}: `{e}`",
-            ephemeral=True
-        )
-        return
-
-    await interaction.response.send_message(
-        f"{member.mention} has been **kicked**.\nReason: {reason}",
-        ephemeral=True
-    )
-
-# /unban command (main server only, mods+ only)
-
-@bot.tree.command(name="unban", description="Unban a user from the main server")
-@app_commands.describe(
-    user_id="ID of the user to unban (right click -> Copy ID)",
-    reason="Reason for the unban (optional)"
-)
-@app_commands.guilds(discord.Object(id=MAIN_GUILD_ID))
-async def unban(
-    interaction: discord.Interaction,
-    user_id: str,
-    reason: str = "Manual unban"
-):
-    # Ensure in main server
-    if interaction.guild is None or interaction.guild.id != MAIN_GUILD_ID:
-        await interaction.response.send_message(
-            "This command can only be used in the main server.",
-            ephemeral=True
-        )
-        return
-
-    # Mods+ only
-    if not isinstance(interaction.user, discord.Member) or not is_mod_or_admin(interaction.user):
-        await interaction.response.send_message(
-            "You must be a moderator or admin to use this command.",
-            ephemeral=True
-        )
-        return
-
-    # Validate ID
-    try:
-        uid = int(user_id)
-    except ValueError:
-        await interaction.response.send_message(
-            "Please provide a valid user ID.",
-            ephemeral=True
-        )
-        return
-
-    guild = interaction.guild
-
-    # Try to fetch user for DM
-    user = None
-    try:
-        user = await interaction.client.fetch_user(uid)
-    except Exception:
-        user = interaction.client.get_user(uid)
-
-    # Unban
-    try:
-        await guild.unban(discord.Object(id=uid), reason=reason)
-    except discord.NotFound:
-        await interaction.response.send_message(
-            "That user is not currently banned.",
-            ephemeral=True
-        )
-        return
-    except Exception as e:
-        await interaction.response.send_message(
-            f"Failed to unban user: `{e}`",
-            ephemeral=True
-        )
-        return
-
-    # DM the user (if we could fetch them)
-    if user is not None:
-        try:
-            embed = discord.Embed(
-                title="You Have Been Unbanned",
-                description=f"[our main server]({MAIN_SERVER_INVITE})",
-                color=discord.Color.green()
-            )
-            await user.send(embed=embed)
-        except Exception:
-            pass
-
-    await interaction.response.send_message(
-        f"User with ID `{uid}` has been **unbanned**.\nReason: {reason}",
-        ephemeral=True
-    )
-
-
-@bot.tree.command(name="parge", description="Delete a certain amount of recent messages.")
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(amount="How many messages to delete (max 100)")
-@app_commands.guilds(discord.Object(id=MAIN_GUILD_ID))
-async def parge(interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100]):
-    channel = interaction.channel
-
-    if channel is None or not isinstance(channel, discord.TextChannel):
-        await interaction.response.send_message(
-            "This command can only be used in a text channel.",
-            ephemeral=True
-        )
-        return
-
-    await interaction.response.defer(ephemeral=True)
-
-    deleted = await channel.purge(limit=amount)
-    await interaction.followup.send(f"Deleted {len(deleted)} messages.", ephemeral=True)
-
-
-@bot.tree.command(name="lock-down", description="Lock the current channel so only staff can talk.")
-@app_commands.default_permissions(administrator=True)
-@app_commands.guilds(discord.Object(id=MAIN_GUILD_ID))
-async def lock_down(interaction: discord.Interaction):
-    channel = interaction.channel
-    guild = interaction.guild
-
-    if guild is None or channel is None:
-        await interaction.response.send_message(
-            "This command can only be used in a server text channel.",
-            ephemeral=True
-        )
-        return
-
-    everyone_role = guild.default_role
+    channel = ctx.channel
+    everyone_role = ctx.guild.default_role
     overwrite = channel.overwrites_for(everyone_role)
 
     if overwrite.send_messages is False:
-        await interaction.response.send_message(
-            "This channel is already locked down.",
-            ephemeral=True
-        )
+        await ctx.send("This channel is already locked down.", delete_after=10)
         return
 
     overwrite.send_messages = False
     await channel.set_permissions(everyone_role, overwrite=overwrite)
+    await ctx.send("This channel has been locked down.")
 
-    await interaction.response.send_message("This channel has been locked down.", ephemeral=True)
+
+@bot.command(name="saysmth")
+@commands.has_permissions(administrator=True)
+async def saysmth(ctx: commands.Context, *, body: str | None = None):
+    """
+    !saysmth <message> [(channel_id)]
+    Example: !saysmth Hello (123456789012345678)
+    """
+    guild = ctx.guild
+    if guild is None:
+        await ctx.reply("This command can only be used in a server.", delete_after=10)
+        return
+
+    if not body:
+        try:
+            await ctx.author.send("You must provide a message after the command.")
+        except Exception:
+            pass
+        return
+
+    # Optional (channel_id) at the end: !saysmth hi (123456789012345678)
+    chan: discord.abc.Messageable = ctx.channel
+    m = re.search(r"\((\d{5,})\)\s*$", body)
+    if m:
+        chan_id = int(m.group(1))
+        target = guild.get_channel(chan_id)
+        if isinstance(target, (discord.TextChannel, discord.Thread)):
+            chan = target
+        body = body[:m.start()].rstrip()
+
+    if not body:
+        try:
+            await ctx.author.send("You must provide a message to send.")
+        except Exception:
+            pass
+        return
+
+    # normalize @ everyone / @ here -> @everyone / @here
+    body = re.sub(r"@ ?everyone", "@everyone", body, flags=re.IGNORECASE)
+    body = re.sub(r"@ ?here", "@here", body, flags=re.IGNORECASE)
+
+    # map textual role pings to real role mentions
+    def replace_role_pings(text: str) -> str:
+        patterns = [
+            (r"@ ?head ?caster", HEAD_CASTER_ROLE_ID),
+            (r"@ ?head ?ref(?:eree)?", HEAD_REF_ROLE_ID),
+            (r"@ ?ref(?:eree)?", REF_ROLE_ID),
+            (r"@ ?caster", CASTER_ROLE_ID),
+        ]
+
+        def _make_replacer(role_id: int):
+            role = guild.get_role(role_id)
+            mention = role.mention if role else None
+
+            def _repl(mo: re.Match) -> str:
+                return mention or mo.group(0)
+            return _repl
+
+        for pat, rid in patterns:
+            text = re.sub(pat, _make_replacer(rid), text, flags=re.IGNORECASE)
+        return text
+
+    body = replace_role_pings(body)
+
+    # send the message
+    try:
+        await chan.send(body, allowed_mentions=discord.AllowedMentions.all())
+    except Exception:
+        try:
+            await ctx.author.send("Failed to send message (check bot permissions / channel ID).")
+        except Exception:
+            pass
+        return
+
+    # delete original command message
+    try:
+        await ctx.message.delete()
+    except Exception:
+        pass
+
+    # DM confirmation
+    try:
+        if hasattr(chan, "id") and chan.id != ctx.channel.id:
+            await ctx.author.send(f"✅Message sent to {chan.mention}")
+        else:
+            await ctx.author.send("✅Message sent!")
+    except Exception:
+        pass
 
 
 # ---------- on_ready / sync ----------
@@ -1159,15 +803,11 @@ async def lock_down(interaction: discord.Interaction):
 async def on_ready():
     print(f"Logged in as {bot.user} ({bot.user.id})")
 
-    # Sync commands for main guild (all commands with @app_commands.guilds(MAIN_GUILD_ID))
-    main_guild = discord.Object(id=MAIN_GUILD_ID)
-    await bot.tree.sync(guild=main_guild)
-
-    # Sync commands for appeal guild (all commands with @app_commands.guilds(APPEAL_GUILD_ID))
+    # Sync only the /appeal slash command (appeal guild)
     appeal_guild = discord.Object(id=APPEAL_GUILD_ID)
     await bot.tree.sync(guild=appeal_guild)
 
-    print("Slash commands synced for main and appeal guilds.")
+    print("Slash commands synced for appeal guild.")
 
 
 bot.run(os.getenv("TOKEN"))
